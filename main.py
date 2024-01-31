@@ -4,6 +4,7 @@ import os
 import hydra
 import numpy as np
 import pytorch_lightning as pl
+import bitsandbytes as bnb
 import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
@@ -41,6 +42,8 @@ class LightningDataset(pl.LightningDataModule):
             import datasets.vistsis as data
         elif self.args.dataset == 'vistdii':
             import datasets.vistdii as data
+        elif self.args.dataset == 'vwp':
+            import datasets.vwp as data
         else:
             raise ValueError("Unknown dataset: {}".format(self.args.dataset))
         if stage == "fit":
@@ -136,6 +139,8 @@ class ARLDM(pl.LightningModule):
 
         self.vae = AutoencoderKL.from_pretrained('runwayml/stable-diffusion-v1-5', subfolder="vae")
         self.unet = UNet2DConditionModel.from_pretrained('runwayml/stable-diffusion-v1-5', subfolder="unet")
+        # https://github.com/huggingface/diffusers/blob/main/examples/dreambooth/train_dreambooth.py#L988
+        self.unet.enable_gradient_checkpointing()
         self.noise_scheduler = DDPMScheduler(beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear",
                                              num_train_timesteps=1000)
 
@@ -163,7 +168,8 @@ class ARLDM(pl.LightningModule):
             param.requires_grad = True
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.args.init_lr, weight_decay=1e-4)
+        optimizer = bnb.optim.Adam8bit(self.parameters(), lr=self.args.init_lr, weight_decay=1e-4)
+        # optimizer = torch.optim.AdamW(self.parameters(), lr=self.args.init_lr, weight_decay=1e-4)
         scheduler = LinearWarmupCosineAnnealingLR(optimizer,
                                                   warmup_epochs=self.args.warmup_epochs * self.steps_per_epoch,
                                                   max_epochs=self.args.max_epochs * self.steps_per_epoch)
